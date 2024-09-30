@@ -40,7 +40,7 @@ public class BondController {
         try {
             // API 호출 URL 설정
             String apiUrl = "https://apis.data.go.kr/1160100/service/GetBondIssuInfoService/getBondBasiInfo";
-            String requestUrl = apiUrl + "?serviceKey=" + key + "&numOfRows=1000&pageNo=1&resultType=json&basDt=20240912";
+            String requestUrl = apiUrl + "?serviceKey=" + key + "&numOfRows=1000&pageNo=1&resultType=json&basDt=20240902";
 
             // HttpURLConnection을 사용하여 API 요청
             URL url = new URL(requestUrl);
@@ -108,7 +108,7 @@ public class BondController {
             for (bondPriceVO bond : bonds) {
                 // API 호출 URL 설정
                 String apiUrl = "https://apis.data.go.kr/1160100/service/GetBondSecuritiesInfoService/getBondPriceInfo";
-                String requestUrl = apiUrl + "?serviceKey=" + key + "&numOfRows=1&pageNo=1&resultType=json&basDt=20240912" + "&isinCd=" + bond.getIsinCd();
+                String requestUrl = apiUrl + "?serviceKey=" + key + "&numOfRows=1&pageNo=1&resultType=json&basDt=20240304" + "&isinCd=" + bond.getIsinCd();
 
                 // HttpURLConnection을 사용하여 API 요청
                 URL url = new URL(requestUrl);

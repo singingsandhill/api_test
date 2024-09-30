@@ -2,6 +2,10 @@ package org.scoula.stock;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.PropertySource;
@@ -55,21 +59,23 @@ public class StockController {
 
     @GetMapping(value = "/update", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getStockDataAndUpdateDB() {
+        ExecutorService executorService = Executors.newFixedThreadPool(20);
         try {
             // Retrieve stock information from the database
             List<StockVO> stocks = stockService.getAllStocks();
 
-            for (StockVO stock : stocks) {
+            // 각 주식에 대한 작업(task)을 준비
+            List<Callable<Void>> tasks = stocks.stream().map(stock -> (Callable<Void>) () -> {
                 try {
-                    // Prepare the API request URL
+                    // API 요청 URL을 준비
                     String requestUrl = apiUrl + "?serviceKey=" + key +
-                            "&numOfRows=1" +     // Number of results per page
-                            "&pageNo=1" +         // Page number (you can make this dynamic if needed)
-                            "&resultType=json" +   // Response format (JSON in this case)
-                            "&basDt=20240304" +
-                            "&isinCd=" + stock.getStandardCode();  // Korean stock name
+                            "&numOfRows=1" +     // 페이지 당 결과 수
+                            "&pageNo=1" +         // 페이지 번호
+                            "&resultType=json" +   // 응답 형식 (JSON)
+                            "&basDt=20240902" +
+                            "&isinCd=" + stock.getStandardCode();  // 한국 주식 코드
 
-                    // Use HttpURLConnection to make API request
+                    // HttpURLConnection을 사용하여 API 요청을 실행
                     URL url = new URL(requestUrl);
                     log.info(url.toString());
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -79,6 +85,7 @@ public class StockController {
                     int responseCode = conn.getResponseCode();
                     log.info("Response code for stock {}: {}", stock.getKoreanStockName(), responseCode);
 
+                    // 응답 코드에 따라 스트림 선택 (정상 응답 또는 오류 스트림)
                     BufferedReader rd;
                     if (responseCode >= 200 && responseCode <= 300) {
                         rd = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
@@ -86,7 +93,7 @@ public class StockController {
                         rd = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
                     }
 
-                    // Read API response
+                    // API 응답을 읽음
                     StringBuilder sb = new StringBuilder();
                     String line;
                     while ((line = rd.readLine()) != null) {
@@ -95,7 +102,7 @@ public class StockController {
                     rd.close();
                     conn.disconnect();
 
-                    // Parse JSON and extract fields
+                    // JSON을 파싱하고 필요한 데이터를 추출
                     String responseBody = sb.toString();
                     log.info("Response Body for stock {}: {}", stock.getKoreanStockName(), responseBody);
 
@@ -104,27 +111,42 @@ public class StockController {
                         JsonNode rootNode = objectMapper.readTree(responseBody);
                         JsonNode items = rootNode.path("response").path("body").path("items").path("item");
 
-                        // Loop through the items and extract data
+                        // 각 항목에 대해 데이터를 추출
                         for (JsonNode item : items) {
-                            // Extract values
-                            String standardCode = item.path("isinCd").asText();  // ISIN code (standardCode)
-                            String price = item.path("clpr").asText();  // Closing price (clpr)
+                            // 값을 추출
+                            String standardCode = item.path("isinCd").asText();  // ISIN 코드
+                            String price = item.path("clpr").asText();  // 종가
 
-                            // Update data in the database using standardCode as the key
-                            stockService.updateStockData(price, standardCode); //origin
+                            // standardCode를 키로 하여 데이터베이스를 업데이트
+                            stockService.updateStockData(price, standardCode); // 데이터베이스 업데이트
                         }
                     } catch (Exception jsonEx) {
-                        log.error("Error parsing JSON response for stock {}: {}", stock.getKoreanStockName(), jsonEx.getMessage());
-                        // Skip this stock and move on to the next one
+                        log.error("Error parsing JSON response for stock {}: {}", stock.getKoreanStockName(),
+                                jsonEx.getMessage());
+                        // 이 주식은 건너뛰고 다음 주식으로 넘어감
                     }
 
                 } catch (Exception e) {
-                    log.error("Error occurred while fetching stock data for stock {}: {}", stock.getKoreanStockName(), e.getMessage());
-                    // Skip this stock and move on to the next one
+                    log.error("Error occurred while fetching stock data for stock {}: {}", stock.getKoreanStockName(),
+                            e.getMessage());
+                    // 이 주식은 건너뛰고 다음 주식으로 넘어감
+                }
+                return null;
+            }).toList();
+
+            // 작업을 스레드 풀에 제출하고 모든 작업이 완료되기를 기다림
+            List<Future<Void>> futures = executorService.invokeAll(tasks);
+
+            // 모든 작업이 완료되었는지 확인
+            for (Future<Void> future : futures) {
+                try {
+                    future.get();  // 작업이 완료될 때까지 대기
+                } catch (Exception e) {
+                    log.error("Error occurred while processing a stock update", e);
                 }
             }
 
-            // Return success response
+            // 성공 응답 반환
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             return new ResponseEntity<>("Stock prices updated successfully", headers, HttpStatus.OK);
@@ -132,6 +154,9 @@ public class StockController {
         } catch (Exception e) {
             log.error("Error occurred while fetching stock data and updating DB", e);
             return new ResponseEntity<>(e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        } finally {
+            // 스레드 풀 종료
+            executorService.shutdown();
         }
     }
 
