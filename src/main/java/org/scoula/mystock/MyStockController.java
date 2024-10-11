@@ -193,7 +193,7 @@ public class MyStockController {
         headers.set("authorization", "Bearer " + token);
         headers.set("appkey", appKey);
         headers.set("appsecret", appSecret);
-        headers.set("tr_id", "FHKST01010100");
+        headers.set("tr_id", "TTTC8434R");
 
         HttpEntity<String> requestEntity = new HttpEntity<>(headers);
 
