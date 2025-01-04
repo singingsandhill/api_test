@@ -1,2 +1,2 @@
 # api_test
-"외부 api 연동 test" 및 DB화
+오픈 API를 이용한 데이터 DB화_spring mvc, mybatis 이용
